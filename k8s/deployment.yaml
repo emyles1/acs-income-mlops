@@ -1,0 +1,38 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: acs-income-predictor
+  labels:
+    app: acs-income-predictor
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: acs-income-predictor
+  template:
+    metadata:
+      labels:
+        app: acs-income-predictor
+    spec:
+      containers:
+        - name: acs-income-predictor
+          # DOCKER_HUB_USERNAME is substituted by cd.yml at deploy time
+          image: DOCKER_HUB_USERNAME/acs-income-predictor:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 5000
+          env:
+            - name: MODEL_PATH
+              value: "/app/model/income_model.pkl"
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 5000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 5000
+            initialDelaySeconds: 10
+            periodSeconds: 30
