@@ -48,9 +48,12 @@ def fetch_acs_data(year: str = YEAR) -> pd.DataFrame:
 
     print(f"Fetching ACS {year} 5-Year data from Census API...")
     response = requests.get(url, timeout=30)
-    response.raise_for_status()
 
+    print(f"HTTP Status: {response.status_code}")
+    print(f"Response preview: {response.text[:500]}")
+    response.raise_for_status()
     data = response.json()
+
     headers = data[0]
     rows = data[1:]
 
