@@ -71,9 +71,12 @@ jobs:
         run: python3 train.py
 
       - name: Commit updated model to repo
+        env:
+          PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+          git remote set-url origin https://x-access-token:${PAT_TOKEN}@github.com/emyles1/acs-income-mlops.git
           git add model/income_model.pkl
           git diff --cached --quiet && echo "No changes to commit" || \
             git commit -m "chore: retrain model on ACS 2024 data"
