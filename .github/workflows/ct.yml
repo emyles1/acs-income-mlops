@@ -6,36 +6,30 @@
 #   2. Model Training & Testing          (train job)
 #   6. Continuous Training               (scheduled trigger)
 #
-# Triggered automatically on 1st December each year when the
-# Census Bureau releases new ACS 5-Year estimates.
-# Can also be triggered manually via workflow_dispatch for
-# demos or ad-hoc retraining.
+# Triggered automatically on 1st December each year, aligned
+# with the Census Bureau's annual ACS 5-Year data release.
+# Can also be triggered manually via workflow_dispatch.
 #
-# On completion, commits the refreshed data CSV and model
-# pickle back to the repo so the CD workflow picks them up.
+# On completion, commits the retrained model back to main so
+# the CD workflow picks it up and redeploys automatically.
 # ============================================================
 
 name: Continuous Training
 
 on:
-  # Runs automatically when new ACS data is released (each December)
+  # Runs automatically each December when new ACS data is released
   schedule:
     - cron: "0 9 1 12 *"
 
-  # Allow manual trigger — useful for demos and testing
+  # Allow manual trigger for demos and testing
   workflow_dispatch:
-    inputs:
-      acs_year:
-        description: "ACS data vintage year to fetch (e.g. 2024)"
-        required: false
-        default: "2024"
 
 jobs:
   # ----------------------------------------------------------
   # Stage 1: Data Acquisition & Preprocessing
   # ----------------------------------------------------------
   ingest:
-    name: Fetch & Preprocess ACS Data
+    name: Validate ACS Data
     runs-on: ubuntu-latest
 
     steps:
@@ -50,17 +44,8 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      
-      - name: Use sample ACS data
-        run: |
-          echo "Using committed sample data for training"
-
-      - name: Upload data as artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: acs-data
-          path: data/acs_data.csv
-          retention-days: 7
+      - name: Validate dataset
+        run: python ingest.py
 
   # ----------------------------------------------------------
   # Stage 2: Model Training & Testing
@@ -73,29 +58,23 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-      
-      - name: Verify Python
+
+      - name: Check Python version
         run: python3 --version
 
       - name: Install dependencies
-        run: pip install -r requirements.txt
-
-      - name: Download preprocessed data
-        uses: actions/download-artifact@v4
-        with:
-          name: acs-data
-          path: data/
+        run: pip3 install -r requirements.txt --break-system-packages
 
       - name: Train model and log metrics to MLflow
         env:
           MLFLOW_TRACKING_URI: ${{ secrets.MLFLOW_TRACKING_URI }}
-        run: python train.py
+        run: python3 train.py
 
-      - name: Commit updated data and model to repo
+      - name: Commit updated model to repo
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add data/acs_data.csv model/income_model.pkl
+          git add model/income_model.pkl
           git diff --cached --quiet && echo "No changes to commit" || \
-            git commit -m "chore: retrain on ACS ${{ github.event.inputs.acs_year || '2024' }} data [skip ci]"
+            git commit -m "chore: retrain model on ACS 2024 data [skip ci]"
           git push

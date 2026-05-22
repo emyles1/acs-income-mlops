@@ -1,121 +1,88 @@
 """
-ingest.py — ACS Data Acquisition & Preprocessing
--------------------------------------------------
-Fetches ACS 5-Year estimates from the Census Bureau API for all US states.
-Target variable  : B19013_001E — Median Household Income
-Feature variables: median age, total population, employment, housing occupancy
+ingest.py — Data Acquisition & Preprocessing
+---------------------------------------------
+Loads and validates the ACS 5-Year state-level dataset before training.
 
-The ACS releases new 5-year estimates each December. The YEAR env var controls
-which vintage is pulled, making this script the trigger for Continuous Training.
+The source dataset (data/acs_data.csv) contains ACS 2024 5-Year estimates
+for all 50 US states and DC, covering income, age, population, employment,
+and housing variables published by the US Census Bureau.
+
+In a production environment this script would fetch live data directly from
+the Census Bureau API (api.census.gov/data/{year}/acs/acs5) each December
+when new estimates are released. For this pipeline the validated CSV is
+committed to the repository and used as the stable data source.
+
+Outputs : data/acs_data.csv  (validated and ready for training)
 
 Usage:
-    ACS_YEAR=2024 CENSUS_API_KEY=your_key python ingest.py
+    python ingest.py
 """
 
 import os
 import sys
-import requests
 import pandas as pd
 
 # ---------------------------------------------------------------------------
 # Config
 # ---------------------------------------------------------------------------
-API_KEY = os.environ.get("CENSUS_API_KEY", "")
-YEAR = os.environ.get("ACS_YEAR", "2024")
-BASE_URL = f"https://api.census.gov/data/{YEAR}/acs/acs5"
+DATA_PATH = os.path.join("data", "acs_data.csv")
 
-# ACS variable codes → friendly column names
-VARIABLES = {
-    "B19013_001E": "median_household_income",  # TARGET
-    "B01002_001E": "median_age",
-    "B01003_001E": "total_population",
-    "B23025_004E": "employed",
-    "B23025_005E": "unemployed",
-    "B25002_002E": "occupied_housing_units",
-}
-
-OUTPUT_PATH = os.path.join("data", "acs_data.csv")
+REQUIRED_COLS = [
+    "median_household_income",
+    "median_age",
+    "total_population",
+    "unemployment_rate",
+    "housing_occupancy_rate",
+]
 
 
 # ---------------------------------------------------------------------------
-# Fetch
+# Validate
 # ---------------------------------------------------------------------------
-def fetch_acs_data(year: str = YEAR) -> pd.DataFrame:
-    var_string = ",".join(VARIABLES.keys())
-    url = f"https://api.census.gov/data/{year}/acs/acs5?get=NAME,{var_string}&for=state:*"
-    if API_KEY:
-        url += f"&key={API_KEY}"
+def validate() -> pd.DataFrame:
+    print(f"Loading data from {DATA_PATH}...")
 
-    print(f"Fetching ACS {year} 5-Year data from Census API...")
-    response = requests.get(url, timeout=30)
+    if not os.path.exists(DATA_PATH):
+        print(f"ERROR: {DATA_PATH} not found.")
+        sys.exit(1)
 
-    print(f"HTTP Status: {response.status_code}")
-    print(f"Response preview: {response.text[:500]}")
-    response.raise_for_status()
-    data = response.json()
+    df = pd.read_csv(DATA_PATH)
+    print(f"Loaded {len(df)} rows, {len(df.columns)} columns.")
 
-    headers = data[0]
-    rows = data[1:]
+    # Required columns present
+    missing_cols = [c for c in REQUIRED_COLS if c not in df.columns]
+    if missing_cols:
+        print(f"ERROR: Missing required columns: {missing_cols}")
+        sys.exit(1)
 
-    df = pd.DataFrame(rows, columns=headers)
-    return df
+    # Minimum row count (50 states + DC)
+    if len(df) < 50:
+        print(f"ERROR: Expected at least 50 rows, got {len(df)}")
+        sys.exit(1)
 
+    # No nulls in required columns
+    nulls = df[REQUIRED_COLS].isnull().sum()
+    if nulls.sum() > 0:
+        print(f"ERROR: Null values found:\n{nulls[nulls > 0]}")
+        sys.exit(1)
 
-# ---------------------------------------------------------------------------
-# Preprocess
-# ---------------------------------------------------------------------------
-def preprocess(df: pd.DataFrame) -> pd.DataFrame:
-    df = df.rename(columns=VARIABLES)
+    # No negative or zero income values
+    if not (df["median_household_income"] > 0).all():
+        print("ERROR: Non-positive income values found — check for sentinel values.")
+        sys.exit(1)
 
-    # Cast to numeric — ACS uses -666666666 / -888888888 for N/A
-    numeric_cols = list(VARIABLES.values())
-    for col in numeric_cols:
-        df[col] = pd.to_numeric(df[col], errors="coerce")
+    # Unemployment rate in valid range
+    if not df["unemployment_rate"].between(0, 1).all():
+        print("ERROR: Unemployment rate out of [0, 1] range.")
+        sys.exit(1)
 
-    # Drop missing target
-    df = df.dropna(subset=["median_household_income"])
-
-    # Remove sentinel negative values
-    df = df[df["median_household_income"] > 0]
-    df = df[df["employed"] > 0]
-
-    # Derived features
-    df["unemployment_rate"] = df["unemployed"] / (df["employed"] + df["unemployed"])
-    df["housing_occupancy_rate"] = df["occupied_housing_units"] / df["total_population"]
-
-    # Tag with vintage year
-    df["acs_year"] = int(YEAR)
-
-    # Keep only the columns we need
-    keep = [
-        "NAME",
-        "state",
-        "acs_year",
-        "median_household_income",
-        "median_age",
-        "total_population",
-        "unemployment_rate",
-        "housing_occupancy_rate",
-    ]
-    df = df[keep].reset_index(drop=True)
-
-    print(f"Preprocessed {len(df)} state rows.")
+    print("All validation checks passed.")
+    print(df[REQUIRED_COLS].describe().to_string())
     return df
 
 
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
-def main():
-    os.makedirs("data", exist_ok=True)
-
-    df = fetch_acs_data(YEAR)
-    df = preprocess(df)
-
-    df.to_csv(OUTPUT_PATH, index=False)
-    print(f"Saved to {OUTPUT_PATH}")
-    print(df.describe())
-
-
 if __name__ == "__main__":
-    main()
+    validate()
