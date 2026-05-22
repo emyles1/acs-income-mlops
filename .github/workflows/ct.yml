@@ -17,6 +17,11 @@
 name: Continuous Training
 
 on:
+  # Runs automatically when new data is pushed to the repo
+  push:
+    paths:
+      - 'data/acs_data.csv'
+
   # Runs automatically each December when new ACS data is released
   schedule:
     - cron: "0 9 1 12 *"
