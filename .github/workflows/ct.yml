@@ -63,7 +63,7 @@ jobs:
         run: python3 --version
 
       - name: Install dependencies
-        run: pip3 install -r requirements.txt --break-system-packages
+        run: pip3 install -r requirements.txt || pip3 install -r requirements.txt --break-system-packages
 
       - name: Train model and log metrics to MLflow
         env:
