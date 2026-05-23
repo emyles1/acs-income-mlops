@@ -5,8 +5,9 @@
 #   3. Model Deployment    (deploy job)
 #   5. Continuous Delivery (build-and-push job)
 #
-# Triggered on every push to 'main' (including the model
-# commit made by ct.yml after retraining).
+# Triggered on every push to 'main', including the model
+# commit made by ct.yml after retraining. CT does not commit
+# anything back, so there is no loop risk.
 #
 # Jobs:
 #   build-and-push  — Builds the Docker image containing the
@@ -24,6 +25,10 @@ on:
   push:
     branches:
       - main
+  workflow_run:
+    workflows: ["Continuous Training"]
+    types:
+      - completed
 
 jobs:
   # ----------------------------------------------------------
